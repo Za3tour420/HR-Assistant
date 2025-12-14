@@ -6,11 +6,11 @@ def encode_pdf(file_path: str) -> str:
     file_content = ""
 
     # Open PDF and read data
-    doc = fitz.open(file_path)
-    for page in doc:
-        content = page.get_text()
-        if content:
-            file_content += content + "\n"
+    with fitz.open(file_path) as doc:
+        for page in doc:
+            content = page.get_text()
+            if content:
+                file_content += content + "\n"
         
     # Encode if content
     if file_content:
@@ -23,11 +23,11 @@ def encode_pdf_stream(file_stream):
     file_content = ""
 
     # Open PDF from stream and read data
-    doc = fitz.open(stream=file_stream.read(), filetype="pdf")
-    for page in doc:
-        content = page.get_text()
-        if content:
-            file_content += content + "\n"
+    with fitz.open(stream=file_stream.read(), filetype="pdf") as doc:
+        for page in doc:
+            content = page.get_text()
+            if content:
+                file_content += content + "\n"
         
     # Encode if content
     if file_content:
