@@ -1,29 +1,44 @@
+from agentic.llm import init_model
+from tools.tools_register import *
+
 from langchain_ollama import ChatOllama
-from langchain_core.messages import HumanMessage, BaseMessage, AIMessage
+from langchain_core.messages import HumanMessage, BaseMessage, AIMessage, AIMessageChunk
 from langchain.agents import create_agent
 from typing import Annotated, TypedDict
 import operator
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import StateGraph, START, END
 
-###########################################
-# LLM INIT
-###########################################
+import psutil
+import subprocess
+from time import sleep
 
-def init_model():
-    return ChatOllama(
-        model="gemma3:4b",
-        temperature=0.1,
-        num_predict=1024,
-        validate_model_on_init=True,
-    )
 
 ###########################################
 # TOOLS INIT
 ###########################################
 
+def is_ollama_running():
+    """Check if any Ollama-related process is running."""
+    for proc in psutil.process_iter(['name']):
+        if 'ollama' in proc.info['name'].lower():
+            return True
+    return False
+
+def run_ollama():
+    """Run the Ollama process."""
+    proc = subprocess.Popen(
+        ["ollama"],
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
+    )
+    sleep(8)
+    return proc
+
+def terminate_ollama(proc):
+    """Terminate the Ollama process."""
+    proc.send_signal(subprocess.signal.CTRL_BREAK_EVENT)
+
 def init_tools():
-    # You can register real tools here
     return []
 
 ###########################################
@@ -39,32 +54,25 @@ class AgentState(TypedDict):
 
 def build_agent_node():
     llm = init_model()
+    # Ensure your init_model() returns ChatOllama(..., streaming=True)
     tools = init_tools()
-    react_agent = create_agent(llm, tools)
-
+    
+    # We use the LLM directly to handle streaming logic more cleanly within the node
     def agent_node(state: AgentState):
-        print("\n[Agent response]: ", end="", flush=True)
-
-        collected_text = ""
-
-        # Stream output for display only
-        for chunk in llm.stream(state["messages"]):
-            content = getattr(chunk, "content", None)
-            if content:
-                print(content, end="", flush=True)
-                collected_text += content
-
-        print()  # newline after stream
-
-        # Return proper dict matching AgentState
-        return {"messages": [AIMessage(content=collected_text)]}
+        # We bind tools to the LLM so it can decide to use them
+        llm_with_tools = llm.bind_tools(tools)
+        
+        # The node simply returns the prediction; 
+        # the streaming happens at the graph level (app.stream)
+        response = llm_with_tools.invoke(state["messages"])
+        return {"messages": [response]}
 
     return agent_node
 
 agent_node = build_agent_node()
 
 ###########################################
-# GRAPH BUILD — SINGLE NODE
+# GRAPH BUILD
 ###########################################
 
 graph = StateGraph(AgentState)
@@ -79,16 +87,28 @@ app = graph.compile(checkpointer=memory)
 # MAIN LOOP
 ###########################################
 
-while True:
-    user_input = input("\nEnter your message: ").strip()
-    if user_input.lower() == "exit":
-        break
+if __name__ == "__main__":
+    while True:
+        if not is_ollama_running():
+            proc = run_ollama()
+        user_input = input("\nEnter your message: ").strip()
+        if user_input.lower() == "exit":
+            break
 
-    inputs = {"messages": [HumanMessage(content=user_input)]}
+        inputs = {"messages": [HumanMessage(content=user_input)]}
+        config = {"configurable": {"thread_id": "session_42"}}
 
-    for step in app.stream(inputs, {"configurable": {"thread_id": "session_42"}}):
-        for node_name, value in step.items():
-            if node_name != "agent":  # avoid printing streamed content twice
-                print(f"\n🔹 Step: {node_name} finished.")
+        print("\n[Agent response]: ", end="", flush=True)
 
-    print(f"\n🔹 Step: agent finished.")
+        # Use stream_mode="messages" to get token chunks
+        # 
+        for msg, metadata in app.stream(inputs, config, stream_mode="messages"):
+            # Check if the message is coming from the agent node and is a chunk
+            if metadata.get("langgraph_node") == "agent":
+                if isinstance(msg, AIMessageChunk):
+                    print(msg.content, end="", flush=True)
+                elif isinstance(msg, AIMessage) and msg.content:
+                    # Fallback for full messages
+                    print(msg.content, end="", flush=True)
+
+        print(f"\n\n🔹 Step: agent finished.")
