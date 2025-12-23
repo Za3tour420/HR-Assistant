@@ -1,7 +1,6 @@
 from agentic.llm import init_model
 from tools.tools_register import *
 
-from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, BaseMessage, AIMessage, AIMessageChunk
 from langchain.agents import create_agent
 from typing import Annotated, TypedDict
@@ -9,29 +8,30 @@ import operator
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import StateGraph, START, END
 
-import psutil
+import socket
 import subprocess
-from time import sleep
+from time import sleep, time
 
 
 ###########################################
 # TOOLS INIT
 ###########################################
 
-def is_ollama_running():
-    """Check if any Ollama-related process is running."""
-    for proc in psutil.process_iter(['name']):
-        if 'ollama' in proc.info['name'].lower():
-            return True
-    return False
+def is_ollama_running(host="127.0.0.1", port=11434):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex((host, port)) == 0
+
+print(is_ollama_running())
 
 def run_ollama():
-    """Run the Ollama process."""
+    """Start Ollama server in the background."""
     proc = subprocess.Popen(
-        ["ollama"],
-        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
+        ["ollama", "serve"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True  # detaches from parent
     )
-    sleep(8)
+    sleep(5)
     return proc
 
 def terminate_ollama(proc):
@@ -69,6 +69,8 @@ def build_agent_node():
 
     return agent_node
 
+if not is_ollama_running():
+    proc = run_ollama()
 agent_node = build_agent_node()
 
 ###########################################
@@ -89,12 +91,11 @@ app = graph.compile(checkpointer=memory)
 
 if __name__ == "__main__":
     while True:
-        if not is_ollama_running():
-            proc = run_ollama()
         user_input = input("\nEnter your message: ").strip()
         if user_input.lower() == "exit":
+            if proc:
+                terminate_ollama(proc)
             break
-
         inputs = {"messages": [HumanMessage(content=user_input)]}
         config = {"configurable": {"thread_id": "session_42"}}
 
