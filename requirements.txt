@@ -1,4 +1,10 @@
+transformers
+accelerate
+bitsandbytes
+pillow
 langchain
 langchain-ollama
 langchain-google-community
 langgraph
+pymupdf
+fastapi
