@@ -1,35 +1,32 @@
 import fitz
 import base64
 
-def encode_pdf(file_path: str) -> str:
-    b64_pdf = None
-    file_content = ""
+def encode_pdf(file_path: str, dpi: int = 200) -> list[str]:
+    b64_page_images = []
 
-    # Open PDF and read data
+    # Open PDF and treat pages as images
     with fitz.open(file_path) as doc:
         for page in doc:
-            content = page.get_text()
-            if content:
-                file_content += content + "\n"
-        
-    # Encode if content
-    if file_content:
-        b64_pdf = base64.b64encode(file_content.encode("utf-8")).decode("utf-8")
-    return b64_pdf
+            pix = page.get_pixmap(dpi=dpi)
+            img_bytes = pix.tobytes("png")
+            b64_page_images.append(
+                base64.b64encode(img_bytes).decode("utf-8")
+            )
+
+    return b64_page_images
+            
 
 
-def encode_pdf_stream(file_stream):
-    b64_pdf = None
-    file_content = ""
+def encode_pdf_stream(file_stream, dpi: int = 200) -> list[str]:
+    b64_page_images = []
 
-    # Open PDF from stream and read data
+    # Open PDF from stream
     with fitz.open(stream=file_stream.read(), filetype="pdf") as doc:
         for page in doc:
-            content = page.get_text()
-            if content:
-                file_content += content + "\n"
-        
-    # Encode if content
-    if file_content:
-        b64_pdf = base64.b64encode(file_content.encode("utf-8")).decode("utf-8")
-    return b64_pdf
+            pix = page.get_pixmap(dpi=dpi)
+            img_bytes = pix.tobytes("png")
+            b64_page_images.append(
+                base64.b64encode(img_bytes).decode("utf-8")
+            )
+    
+    return b64_page_images
